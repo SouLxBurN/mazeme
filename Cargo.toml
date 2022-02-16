@@ -1,5 +1,5 @@
 [package]
-name = "terminal-render"
+name = "mazeme"
 version = "0.1.0"
 edition = "2021"
 
@@ -9,3 +9,4 @@ edition = "2021"
 term_size = "0.3.2"
 console = "0.15.0"
 figlet-rs = "0.1.3"
+rand = "0.8.5"

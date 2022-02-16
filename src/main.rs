@@ -1,7 +1,9 @@
+use std::collections::HashSet;
 use std::io::{self, Write};
 use std::sync::mpsc;
 use std::thread;
 
+use rand::Rng;
 use console::Term;
 use figlet_rs::FIGfont;
 
@@ -12,11 +14,12 @@ use figlet_rs::FIGfont;
 /// Create a fixed bounding box.
 /// Center on the inital terminal size.
 const SYMBOL: char = '●';
+const GOAL: char = '▓';
 const ESC: &str = "\x1b";
-const BOARD_SIZE: usize = 25;
+const BOARD_SIZE: usize = 35;
 
 const BORDER: char = '░';
-const WALL: char = '█';
+const WALL: char = '░';
 
 enum Movement {
     UP,
@@ -25,7 +28,7 @@ enum Movement {
     RIGHT,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 struct Position {
     x: usize,
     y: usize,
@@ -71,7 +74,7 @@ impl GameState {
     /// Accepts a board reference and the destination position.
     /// Returns true if move is valid, otherwise false.
     fn is_valid_move(&self, new_position: &Position) -> bool {
-        !self.victory && self.board[new_position.y][new_position.x] == ' '
+        !self.victory && self.board[new_position.y][new_position.x] != WALL
     }
 
     fn is_win_position(&self) -> bool {
@@ -79,9 +82,72 @@ impl GameState {
     }
 }
 
+/// generate_maze
+fn generate_maze() -> [[char; BOARD_SIZE]; BOARD_SIZE] {
+    let mut board = [[' '; BOARD_SIZE]; BOARD_SIZE];
+    let mut pos = Position{ y: BOARD_SIZE/2, x: BOARD_SIZE/2 };
+    let mut visited = HashSet::new();
+    let mut stack = vec![pos];
+
+    while stack.len() > 0 && visited.len() < BOARD_SIZE.pow(2) {
+        visited.insert(pos);
+
+        let mut moves = vec![];
+        if pos.y > 0 {
+            let mv = Position{ y: pos.y-1, x: pos.x };
+            if !visited.contains(&mv) {
+                moves.push(mv);
+            }
+        }
+        if pos.x > 0 {
+            let mv = Position{ y: pos.y, x: pos.x-1 };
+            if !visited.contains(&mv){
+                moves.push(mv);
+            }
+        }
+        if pos.y < BOARD_SIZE-1 {
+            let mv = Position{ y: pos.y+1, x: pos.x };
+            if !visited.contains(&mv) {
+                moves.push(mv);
+            }
+        }
+        if pos.x < BOARD_SIZE-1 {
+            let mv = Position{ y: pos.y, x: pos.x+1 };
+            if !visited.contains(&mv) {
+                moves.push(mv);
+            }
+        }
+
+        if moves.len() > 0 {
+            // Choose randomly where to move.
+            let mut rng = rand::thread_rng();
+            let move_idx = rng.gen_range(0..moves.len());
+            pos = moves[move_idx];
+            moves.swap_remove(move_idx);
+            stack.push(pos);
+
+            if moves.len() > 0 {
+                // Choose randomly from remaining moves to place a wall.
+                let wall_idx = rng.gen_range(0..moves.len());
+                let wall_pos = moves[wall_idx];
+                // Mark wall visited.
+                visited.insert(wall_pos);
+                board[wall_pos.y][wall_pos.x] = WALL;
+            }
+
+        } else {
+            pos = stack.pop().unwrap();
+        }
+    }
+
+    board
+}
+
+/// main function
 fn main() {
+
     let mut state = GameState {
-        board: [[' '; BOARD_SIZE]; BOARD_SIZE],
+        board: generate_maze(),
         position: Position {
             x: BOARD_SIZE / 2,
             y: BOARD_SIZE / 2,
@@ -91,10 +157,7 @@ fn main() {
     };
 
     state.board[state.position.y][state.position.x] = SYMBOL;
-    state.board[state.position.y + 2][state.position.x + 2] = WALL;
-    state.board[state.position.y + 2][state.position.x] = WALL;
-    state.board[state.position.y + 2][state.position.x + 1] = WALL;
-    state.board[state.position.y + 1][state.position.x + 2] = WALL;
+    state.board[state.win_position.y][state.win_position.x] = GOAL;
 
     let (tx, rx) = mpsc::channel();
     thread::spawn(move || render(rx));
@@ -144,6 +207,7 @@ fn render(rx: mpsc::Receiver<GameState>) {
                 for v in row.iter() {
                     match *v {
                         SYMBOL => print!("◀◆▶"),
+                        GOAL => print!("{ESC}[35m{v}{v}{v}{ESC}[0m"),
                         _ => print!("{v}{v}{v}"),
                     }
                 }
