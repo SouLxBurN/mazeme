@@ -7,16 +7,11 @@ use rand::Rng;
 use console::Term;
 use figlet_rs::FIGfont;
 
-/// Create program that renders a single character in the middle of the screen on launch.
-/// Character is controllable with arrow inputs.
-/// We'll go from there.
-///
-/// Create a fixed bounding box.
-/// Center on the inital terminal size.
 const SYMBOL: char = '●';
 const GOAL: char = '▓';
 const ESC: &str = "\x1b";
-const BOARD_SIZE: usize = 35;
+const BOARD_SIZE: usize = 25;
+const GEN_SIZE: usize = 13;
 
 const BORDER: char = '░';
 const WALL: char = '░';
@@ -34,6 +29,12 @@ struct Position {
     y: usize,
 }
 
+#[derive(Debug, Clone, Copy)]
+struct BoardCell {
+    wall_right: bool,
+    wall_bottom: bool,
+}
+
 #[derive(Debug, Clone)]
 struct GameState {
     board: [[char; BOARD_SIZE]; BOARD_SIZE],
@@ -43,6 +44,25 @@ struct GameState {
 }
 
 impl GameState {
+
+    /// new
+    pub fn new() -> GameState {
+        let mut state = GameState {
+            board: generate_maze(),
+            position: Position {
+                x: 0,
+                y: 0,
+            },
+            win_position: Position { x: BOARD_SIZE-1, y: BOARD_SIZE-1 },
+            victory: false,
+
+        };
+        state.board[state.position.y][state.position.x] = SYMBOL;
+        state.board[state.win_position.y][state.win_position.x] = GOAL;
+
+        return state;
+    }
+
     /// move_position
     pub fn move_position(&mut self, action: Movement) {
         let mut new_pos = Position {
@@ -51,12 +71,18 @@ impl GameState {
         };
 
         match action {
-            Movement::UP => new_pos.y = (self.position.y + self.board.len() - 1) % self.board.len(),
-            Movement::DOWN => new_pos.y = (self.position.y + 1) % self.board.len(),
-            Movement::LEFT => {
-                new_pos.x = (self.position.x + self.board.len() - 1) % self.board.len()
+            Movement::UP => if let Some(y) = self.position.y.checked_sub(1) {
+                new_pos.y = y;
             }
-            Movement::RIGHT => new_pos.x = (self.position.x + 1) % self.board.len(),
+            Movement::DOWN => if self.position.y < BOARD_SIZE-1 {
+                new_pos.y = self.position.y+1;
+            }
+            Movement::LEFT => if let Some(x) = self.position.x.checked_sub(1) {
+                new_pos.x = x;
+            }
+            Movement::RIGHT => if self.position.x < BOARD_SIZE-1 {
+                new_pos.x = self.position.x+1;
+            }
         }
 
         if self.is_valid_move(&new_pos) {
@@ -84,81 +110,109 @@ impl GameState {
 
 /// generate_maze
 fn generate_maze() -> [[char; BOARD_SIZE]; BOARD_SIZE] {
-    let mut board = [[' '; BOARD_SIZE]; BOARD_SIZE];
-    let mut pos = Position{ y: BOARD_SIZE/2, x: BOARD_SIZE/2 };
+    let mut board = [[BoardCell{
+        wall_right: false,
+        wall_bottom: false,
+    }; GEN_SIZE]; GEN_SIZE];
+    let mut pos = Position{ y: GEN_SIZE/2, x: GEN_SIZE/2 };
     let mut visited = HashSet::new();
     let mut stack = vec![pos];
 
+    let mut popped = false;
     while stack.len() > 0 && visited.len() < BOARD_SIZE.pow(2) {
         visited.insert(pos);
 
         let mut moves = vec![];
+        // Move Up
         if pos.y > 0 {
             let mv = Position{ y: pos.y-1, x: pos.x };
             if !visited.contains(&mv) {
                 moves.push(mv);
+            } else if !popped && stack[stack.len()-1] != mv {
+                board[mv.y][mv.x].wall_bottom = true;
             }
         }
+        // Move Left
         if pos.x > 0 {
             let mv = Position{ y: pos.y, x: pos.x-1 };
             if !visited.contains(&mv){
                 moves.push(mv);
+            } else if !popped && stack[stack.len()-1] != mv {
+                board[mv.y][mv.x].wall_right = true;
             }
         }
-        if pos.y < BOARD_SIZE-1 {
+        // Move Down
+        if pos.y < GEN_SIZE-1 {
             let mv = Position{ y: pos.y+1, x: pos.x };
             if !visited.contains(&mv) {
                 moves.push(mv);
+            } else if !popped && stack[stack.len()-1] != mv {
+                board[pos.y][pos.x].wall_bottom = true;
             }
         }
-        if pos.x < BOARD_SIZE-1 {
+        // Move Right
+        if pos.x < GEN_SIZE-1 {
             let mv = Position{ y: pos.y, x: pos.x+1 };
             if !visited.contains(&mv) {
                 moves.push(mv);
+            } else if !popped && stack[stack.len()-1] != mv {
+                board[pos.y][pos.x].wall_right = true;
             }
         }
 
         if moves.len() > 0 {
+            stack.push(pos);
+            popped = false;
             // Choose randomly where to move.
             let mut rng = rand::thread_rng();
             let move_idx = rng.gen_range(0..moves.len());
             pos = moves[move_idx];
-            moves.swap_remove(move_idx);
-            stack.push(pos);
-
-            if moves.len() > 0 {
-                // Choose randomly from remaining moves to place a wall.
-                let wall_idx = rng.gen_range(0..moves.len());
-                let wall_pos = moves[wall_idx];
-                // Mark wall visited.
-                visited.insert(wall_pos);
-                board[wall_pos.y][wall_pos.x] = WALL;
-            }
 
         } else {
             pos = stack.pop().unwrap();
+            popped = true;
         }
     }
 
-    board
+    // Convert Board into render board.
+    let mut render_board = [[' '; BOARD_SIZE]; BOARD_SIZE];
+
+    for y in 0..GEN_SIZE {
+        for x in 0..GEN_SIZE {
+            let c = board[y][x];
+
+            let ry = 2*y;
+            let rx = 2*x;
+
+            if y < GEN_SIZE-1 {
+                if x < GEN_SIZE-1 {
+                    if c.wall_bottom {
+                        render_board[ry+1][rx] = WALL;
+                    }
+                    if c.wall_right {
+                        render_board[ry][rx+1] = WALL;
+                    }
+                    render_board[ry+1][rx+1] = WALL;
+                } else {
+                    if c.wall_bottom {
+                        render_board[ry+1][rx] = WALL;
+                    }
+                }
+
+            } else {
+                if c.wall_right {
+                    render_board[ry][rx+1] = WALL;
+                }
+            }
+        }
+    }
+
+    render_board
 }
 
 /// main function
 fn main() {
-
-    let mut state = GameState {
-        board: generate_maze(),
-        position: Position {
-            x: BOARD_SIZE / 2,
-            y: BOARD_SIZE / 2,
-        },
-        win_position: Position { x: 0, y: 0 },
-        victory: false,
-    };
-
-    state.board[state.position.y][state.position.x] = SYMBOL;
-    state.board[state.win_position.y][state.win_position.x] = GOAL;
-
+    let mut state = GameState::new();
     let (tx, rx) = mpsc::channel();
     thread::spawn(move || render(rx));
     if let Err(e) = tx.send(state.clone()) {
@@ -223,7 +277,7 @@ fn render(rx: mpsc::Receiver<GameState>) {
 
             if state.victory {
                 let ffont = FIGfont::standand().unwrap();
-                if let Some(msg) = ffont.convert("You Win!") {
+                if let Some(msg) = ffont.convert("You Did It!") {
                     let mut m_w = msg.to_string().lines().map(|s| s.len()).max().unwrap_or(1);
                     let mut m_h = msg.height as usize;
                     if m_w > wd || m_h > ht {
