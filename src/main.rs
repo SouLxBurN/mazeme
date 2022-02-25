@@ -7,11 +7,13 @@ mod render;
 use game_state::{GameState, Movement};
 use render::start_render;
 
-const BOARD_SIZE: usize = 20;
+const DEFAULT_BOARD_SIZE: usize = 20;
 
 /// main function
 fn main() {
-    let mut state = GameState::new(BOARD_SIZE);
+    validate_terminal_size(DEFAULT_BOARD_SIZE);
+
+    let mut state = GameState::new(DEFAULT_BOARD_SIZE);
     let (tx, rx) = mpsc::channel();
     start_render(rx, state.board.len());
 
@@ -36,5 +38,24 @@ fn main() {
                 panic!("Could not send board state to render {e}");
             }
         }
+    }
+}
+
+/// Based on terminal dimensions, determine if game board will render correctly.
+fn validate_terminal_size(board_size: usize) {
+    let dims = term_size::dimensions();
+    if dims == None {
+        println!("terminal size unknown");
+        std::process::exit(1);
+    }
+
+    let (wd, ht) = dims.unwrap();
+    if wd/3 < board_size {
+            println!("Terminal width too low for size of maze {DEFAULT_BOARD_SIZE}");
+            std::process::exit(1);
+    }
+    if ht < board_size {
+            println!("Terminal height is too small for the size of the maze {DEFAULT_BOARD_SIZE}");
+            std::process::exit(1);
     }
 }
