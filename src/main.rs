@@ -1,11 +1,16 @@
 use console::Term;
-use std::sync::mpsc;
-
+use std::sync::mpsc::{self, SendError};
+use std::thread;
+use std::time::Duration;
 mod game_state;
 mod render;
 
-use game_state::{GameState, Movement};
+use game_state::Movement::*;
+use game_state::Clock::*;
+use game_state::{GameState, GameStateHandler};
 use render::start_render;
+
+use self::game_state::StateEvent;
 
 const DEFAULT_BOARD_SIZE: usize = 20;
 
@@ -13,31 +18,39 @@ const DEFAULT_BOARD_SIZE: usize = 20;
 fn main() {
     validate_terminal_size(DEFAULT_BOARD_SIZE);
 
-    let mut state = GameState::new(DEFAULT_BOARD_SIZE);
     let (tx, rx) = mpsc::channel();
+    let state = GameState::new(DEFAULT_BOARD_SIZE);
     start_render(rx, state.board.len());
+    let state_handler = GameStateHandler::new(state, tx);
+    let move_channel = state_handler.get_sender();
 
-    if let Err(e) = tx.send(state.clone()) {
-        panic!("Could not send board state to render {e}");
-    }
+    let time_channel = state_handler.get_sender();
+    thread::spawn(move || {
+        loop {
+            thread::sleep(Duration::from_millis(1000));
+            if let Err(e) = time_channel.send(StateEvent::Clock(SUB(1))) {
+                panic!("Timer Update Failed! {e}");
+            }
+        }
+    });
 
     let stdout = Term::buffered_stdout();
-
     loop {
         if let Ok(c) = stdout.read_char() {
             match c {
-                'w' => state.move_position(Movement::UP),
-                'a' => state.move_position(Movement::LEFT),
-                's' => state.move_position(Movement::DOWN),
-                'd' => state.move_position(Movement::RIGHT),
+                'w' => panic_if_failed(move_channel.send(StateEvent::Movement(UP))),
+                'a' => panic_if_failed(move_channel.send(StateEvent::Movement(LEFT))),
+                's' => panic_if_failed(move_channel.send(StateEvent::Movement(DOWN))),
+                'd' => panic_if_failed(move_channel.send(StateEvent::Movement(RIGHT))),
                 _ => (),
             };
-
-            // Render
-            if let Err(e) = tx.send(state.clone()) {
-                panic!("Could not send board state to render {e}");
-            }
         }
+    }
+}
+
+fn panic_if_failed(r: Result<(), SendError<StateEvent>>) {
+    if let Err(err) = r {
+        panic!("Move Command Failed! {err}");
     }
 }
 

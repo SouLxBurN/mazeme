@@ -3,11 +3,26 @@
 ///
 mod gen;
 
+use std::sync::mpsc::{Receiver, Sender, self};
+use std::thread;
+
 use self::gen::generate_maze;
 
 const WALL: char = '░';
 pub const SYMBOL: char = '●';
 pub const GOAL: char = '▓';
+
+pub enum StateEvent {
+    Movement(Movement),
+    Clock(Clock),
+}
+
+#[allow(dead_code)]
+pub enum Clock {
+    ADD(u32),
+    SUB(u32),
+    SET(u32),
+}
 
 pub enum Movement {
     UP,
@@ -22,6 +37,8 @@ pub struct GameState {
     pub position: Position,
     pub win_position: Position,
     pub victory: bool,
+    pub failure: bool,
+    pub time_remaining: u32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -49,12 +66,13 @@ impl GameState {
             },
             win_position: Position { x: board_size-1, y: board_size-1 },
             victory: false,
-
+            failure: false,
+            time_remaining: board_size as u32,
         };
         state.board[state.position.y][state.position.x] = SYMBOL;
         state.board[state.win_position.y][state.win_position.x] = GOAL;
 
-        return state;
+        state
     }
 
     /// move_position
@@ -90,21 +108,64 @@ impl GameState {
         }
     }
 
+    fn clock_event(&mut self, ev: Clock) {
+        match ev {
+            Clock::ADD(v) => if let Some(x) = self.time_remaining.checked_add(v) {
+                self.time_remaining = x
+            }
+            Clock::SUB(v) => if let Some(x) = self.time_remaining.checked_sub(v){
+                self.time_remaining = x
+            },
+            Clock::SET(v) => self.time_remaining = v,
+        }
+
+        if self.time_remaining == 0 && !self.victory {
+            self.failure = true;
+        }
+    }
+
     /// is_valid_move
     /// Accepts a board reference and the destination position.
     /// Returns true if move is valid, otherwise false.
     fn is_valid_move(&self, new_position: &Position) -> bool {
-        !self.victory && self.board[new_position.y][new_position.x] != WALL
+        !self.victory && !self.failure && self.board[new_position.y][new_position.x] != WALL
     }
 
     fn is_win_position(&self) -> bool {
         self.position == self.win_position
     }
 
-    // pub fn start_game(&self) {
+    pub fn listen(&mut self, rx: Receiver<StateEvent>, sx: Sender<GameState>) {
+        if let Err(e) = sx.send(self.clone()) {
+            panic!("Could not send board state to render {e}");
+        }
+        while let Ok(ev) = rx.recv() {
+            match ev {
+                StateEvent::Movement(ev) => self.move_position(ev),
+                StateEvent::Clock(ev) => self.clock_event(ev),
+            }
+            if let Err(res) = sx.send(self.clone()) {
+                panic!("{res}");
+            }
+        }
+    }
+}
 
-    // }
+pub struct GameStateHandler {
+    event_chan: Sender<StateEvent>,
+}
+impl GameStateHandler {
+    pub fn new(mut state: GameState, sx: Sender<GameState>) -> GameStateHandler {
+        let (tx, rx) = mpsc::channel();
+        thread::spawn(move || state.listen(rx, sx));
+        GameStateHandler {
+            event_chan: tx,
+        }
+    }
 
+    pub fn get_sender(&self) -> Sender<StateEvent> {
+        self.event_chan.clone()
+    }
 }
 
 /// convert_generated_maze

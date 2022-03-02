@@ -18,8 +18,14 @@ pub fn start_render(rx: mpsc::Receiver<GameState>, board_size: usize) {
                 let mut frame = format!("{ESC}[2J{ESC}[{y};{x}H", y=draw_y, x=draw_x);
 
                 // Draw Top Border
-                for _ in 0..(3 * board_size + 2) {
-                    frame.push_str(format!("{BORDER}").as_str());
+                for i in 0..(3 * board_size + 2) {
+                    if i == (3*board_size+2)/2 - 1 {
+                        frame.push_str(format!("{ESC}[4m{ESC}[;35m{:03}{ESC}[0m{ESC}[24m", state.time_remaining).as_str());
+                    } else if i == (3*board_size+2)/2 || i == (3*board_size+2)/2 + 1 {
+                        // Do Nothing
+                    } else {
+                        frame.push_str(format!("{BORDER}").as_str());
+                    }
                 }
 
                 frame.push_str(format!("{ESC}[E{ESC}[{x}G", x=draw_x).as_str());
@@ -44,9 +50,13 @@ pub fn start_render(rx: mpsc::Receiver<GameState>, board_size: usize) {
                     frame.push_str(format!("{BORDER}").as_str());
                 }
 
-                if state.victory {
+                if state.victory || state.failure{
                     let ffont = FIGfont::standand().unwrap();
-                    if let Some(msg) = ffont.convert("You Did It!") {
+                    let mut message = "You Did It!";
+                    if state.failure {
+                        message = " You Lose!";
+                    }
+                    if let Some(msg) = ffont.convert(message) {
                         let mut m_w = msg.to_string().lines().map(|s| s.len()).max().unwrap_or(1);
                         let mut m_h = msg.height as usize;
                         if m_w > wd || m_h > ht {
