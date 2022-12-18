@@ -67,6 +67,7 @@ pub fn start_render(rx: mpsc::Receiver<GameState>, board_size: usize) {
                         for (i, l) in msg.to_string().lines().enumerate() {
                             frame.push_str(format!("{ESC}[{ht};{w}H", w = midpoint.0, ht = midpoint.1 + i).as_str());
                             frame.push_str(format!("{}", l).as_str());
+                            frame.push_str(format!("{ESC}[{ht};{wd}H").as_str());
                         }
                     }
                 }

@@ -15,6 +15,7 @@ pub const GOAL: char = '▓';
 pub enum StateEvent {
     Movement(Movement),
     Clock(Clock),
+    NoOP,
 }
 
 #[allow(dead_code)]
@@ -67,7 +68,7 @@ impl GameState {
             win_position: Position { x: board_size-1, y: board_size-1 },
             victory: false,
             failure: false,
-            time_remaining: board_size as u32,
+            time_remaining: (board_size*10) as u32,
         };
         state.board[state.position.y][state.position.x] = SYMBOL;
         state.board[state.win_position.y][state.win_position.x] = GOAL;
@@ -143,9 +144,11 @@ impl GameState {
             match ev {
                 StateEvent::Movement(ev) => self.move_position(ev),
                 StateEvent::Clock(ev) => self.clock_event(ev),
+                StateEvent::NoOP => (),
             }
-            if let Err(res) = sx.send(self.clone()) {
-                panic!("{res}");
+            let _ = sx.send(self.clone());
+            if self.victory || self.failure {
+                return
             }
         }
     }
