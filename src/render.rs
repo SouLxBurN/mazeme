@@ -51,7 +51,7 @@ pub fn start_render(rx: mpsc::Receiver<GameState>, board_size: usize) {
                 }
 
                 if state.victory || state.failure{
-                    let ffont = FIGfont::standand().unwrap();
+                    let ffont = FIGfont::standard().unwrap();
                     let mut message = "You Did It!";
                     if state.failure {
                         message = " You Lose!";
